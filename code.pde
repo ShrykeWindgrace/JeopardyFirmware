@@ -2,7 +2,7 @@
 Main module bor Brain-ring/Jeopardy system;
  Bases on Olimexino-stm32 board
  Pin numbers are subject to change for logistic reasons
- version 0.1.2 ("interrupted buttons, buzzer, LCD")
+ version 0.2.0 ("new interrupted buttons, buzzer, LCD")
  
  Functionality: basic input/output logic;
  supports up to 6 player buttons;
@@ -11,25 +11,23 @@ Main module bor Brain-ring/Jeopardy system;
  
  TO DO: interactions with software on the laptop:
  - detecting if someone is reading our output; 50ms delay on println to overcome;
- - reading/converting/resending output over some protocol agreementl
+ - reading/converting/resending output over some protocol agreement
  
  Portability: Due to extended usage of external interrupts, atm it's limited to Maple boards.
  
  2012
  */
 #include <LiquidCrystal.h> //required for easy lcd usage
- 
+
 const int NP = 6; //number of players, <=6
 
 
 const int PlayerButton[6] = {
-  0,1,2,4,5,6}; //Array of player button pins // Note that D3 is LED2 and somehow it interferes with our work on the first run(((
+  5,4,6,2,1,0}; //Array of player button pins // Note that D3 is LED2 and somehow it interferes with our work on the first run(((
 
 const voidFuncPtr PlayerHandler[6] = {
   PlayerHandler1,PlayerHandler2,PlayerHandler3,PlayerHandler4,PlayerHandler5,PlayerHandler6};
 
-const uint16 PlayerButtonLogic[6]={
-  1u,2u,4u,8u,16u,32u};
 
 const int PlayerLED[6] = {
   15,16,17,18,19,20}; //Array of player led pins
@@ -39,21 +37,20 @@ const int FalseLED = 3;// on if false start //can use 14, but let's use the seco
 
 const int Buzz = 24; // buzzer pin
 
-const int ResetButton = 10;//button to reset all variables to default; 
-const int ResetButtonLogic = 512u;
+const int ResetButton = 7;//button to reset all variables to default; 
+
 
 const int TimerButton[3] = {
-  7,8,9}; // launch 60s,20s,5s respectively
+  10,9,8}; // launch 60s,20s,5s respectively
 const voidFuncPtr TimeHandler[3] = {
   TimeHandler60,TimeHandler20,TimeHandler5};
-const int TimerButtonLogic[3] = {
-  64u,128u,256u};
+
 
 int i = 0; //iteration variable
 
-LiquidCrystal lcd(25,27,29,31,33,35);//everything leads to ext headers
+LiquidCrystal lcd(35,33,31,29,27,25);//everything leads to ext headers
 //                rs,e, d4,d5,d6,d7
-   
+
 volatile int TimeTotal = 0; // time launched for in seconds
 //int TimeLaunch = 0;// time when we launched the countdown
 
@@ -63,19 +60,18 @@ HardwareTimer BuzzLockerTimer(2); // the timer to turn buzzer on and off;
 volatile boolean Counting = false; //true if the timer is on
 volatile boolean ButtonFree = true; // false if any player pressed a button and reset button is yet to be hit;
 
-const int TimeTickLogic = 1024u;
 
-//const int freq[5] = {};
 const int start = 1000; //frequencies
 const int ten = 1500;
 const int over = 500;
 const int good = 750;
-volatile uint16 state=0; // state that describes the buttons pressed;
-/* first six bits correspond to player buttons; 0 to represent UNPRESSED;
- next three bits correspond to "launch time" buttons; 0 to represent UNPRESSED; 60s, 20s, 5s respectively
- 512u correspond to reset button. we need to include it here, because reset now operates with lcd, and it has
- delays
- 1024u stands for time ticks. same as above, we need delays
+volatile int state=0; // state that describes the buttons pressed;
+volatile int btn = -1; //the number of the pressed player button
+/* 0 nothing
+ 1 player button, the exact number is a global variable
+ 2 time button, the exact number is a global variable
+ 3 time tick
+ 4 reset.
  */
 void setup(){
   //not yet needed;
@@ -83,7 +79,8 @@ void setup(){
 
   lcd.begin(16,2);
   lcd.clear();
-  
+
+
   for (i=0;i<NP;i++){
     pinMode(PlayerButton[i],INPUT_PULLUP);//setting all buttons to input pull-up mode; HIGH reading stand for unpressed;
     attachInterrupt(PlayerButton[i],PlayerHandler[i],FALLING); //we attach the corresponding interrupts
@@ -103,6 +100,7 @@ void setup(){
 
   pinMode(Buzz, PWM);
   ResetAll();//resetting all output channels;
+  lcd.print("Welcome!");
 
   TickTimer.pause();
   TickTimer.setPeriod(1000*1000);//period of 1 second 
@@ -123,74 +121,80 @@ void setup(){
   BuzzTimer.setPrescaleFactor(72);  // microseconds
   BuzzTimer.setMode(TIMER_CH4,TIMER_PWM);
 
+  // establishContact();
 }
 void loop(){
 
   while(state==0){
   }//meaning, wait for input;
 
-  if (state&ResetButtonLogic>0){//reset button
-    ResetAll();
-  }else{
-  if (state&TimeTickLogic>0){//time tick
-    TimeTick();}else{
-  if ((state&63u)>0){//pressed a player button
-    for(i=0;i<NP;i++){
-      if (state|PlayerButtonLogic[i]>0){
-	    lcd.clear();
-		lcd.setCursor(0,0);
-        if (!Counting){
-          tone(over); 
-          digitalWrite(FalseLED, HIGH);
-		  lcd.print("FALSESTART");
-        }
-        else{
-          tone(good);
-		  lcd.print("FIRST TO PRESS");
-        }
-		lcd.setCursor(0,1);
-		lcd.print("TABLE "+(i+1));
-        Counting=false;
-        TickTimer.pause();
-        digitalWrite(TimeLED,LOW);
-        digitalWrite(PlayerLED[i],HIGH);
-        digitalWrite(TimeLED,LOW);
-      }//end if player
-    }//endfor
-  }//end if 63
-  else{//time button pressed
+  switch(state){
+  case 1: //player button
+
+    //  SerialUSB.print("pressed");
+    //  SerialUSB.println(btn);
+    lcd.clear();
+    lcd.setCursor(0,0);
     if (!Counting){
+      tone(over); 
+      digitalWrite(FalseLED, HIGH);
+      lcd.print("FALSESTART");
+    }
+    else{
+      tone(good);
+      lcd.print("FIRST TO PRESS");
+    }
+    lcd.setCursor(0,1);
+    lcd.print("TABLE ");
+    lcd.print(btn+1);
+    Counting=false;
+    TickTimer.pause();
+    digitalWrite(TimeLED,LOW);
+    digitalWrite(PlayerLED[btn],HIGH);
+
+
+    break;
+
+  case 2: //timer button
+    if (!Counting&&ButtonFree){
       TickTimer.pause();
       TickTimer.refresh();
       TickTimer.resume();
       tone(start);
       Counting = true;
-	  lcd.clear();
-	  lcd.print("TIME REMAINING");
-
+      //ButtonFree = true;
+      digitalWrite(TimeLED,HIGH);
+      lcd.clear();
+      lcd.print("TIME REMAINING");
+      //    SerialUSB.println(TimeTotal);
     }
-    state = 0; // allowing to go listening again; in case of counting, this just ignores the triggers from those buttons
-  }//endelse if 63
-}//endglobal else
-}
+    break;
+  case 3: 
+    TimeTick(); //interrupt from tick timer
+    if (Counting){
+      //    SerialUSB.println(TimeTotal);
+    }
+    break;
+  case 4: //reset button
+    ResetAll();
+    // SerialUSB.println("reset");
+    break;
 
-
-
-
-
-
+  default: 
+    state=0;//jic
+  }
+  state = 0;//allows to run further
 
 }//endloop
+
+
 // freq in Hz    duration in ms
 void tone( int freq) {
   BuzzTimer.pause();
   BuzzLockerTimer.pause();
-  //pinMode(Buzz,PWM);
-  //BuzzTimer.setPrescaleFactor(72);  // microseconds
   BuzzTimer.setOverflow(1000000/freq);
-  //BuzzTimer.setMode(TIMER_CH4,TIMER_PWM);
+
   BuzzTimer.setCompare(TIMER_CH4,1000000/freq/2);
-  //BuzzTimer.setCount(0);      // probaby doesn't matter
   BuzzTimer.refresh(); // start it up
   BuzzLockerTimer.refresh();
   BuzzTimer.resume();
@@ -218,32 +222,16 @@ void ResetAll(){
   pwmWrite(Buzz,0); //???
 
   Counting = false;
-  //Buzzing = false;
-  ButtonFree = true;
 
   BuzzLockerTimer.pause();
   TickTimer.pause();
   BuzzTimer.pause();
-  state =0;
-  
+  state = 0;
+  btn = -1;
   lcd.clear();
+  ButtonFree = true;
 }//endresetall
 
-int TimeToLaunch(int var){
-  if ((var>=0)&&(var<3)){
-    return (25*i*i+5*i+10)/2+1;
-  }
-  else{
-    return 1000; //Meaning WTF?
-  }
-  /*
-  easy to check the table
-   0-> 5000
-   1-> 20000
-   2-> 60000
-   else->1000
-   */
-}
 
 
 void TimeTick(){
@@ -257,17 +245,18 @@ void TimeTick(){
       TickTimer.pause();
       digitalWrite(TimeLED,LOW); //time is over
       state=0;
-	  lcd.clear();
-	  lcd.print("TIME IS OVER!");
+      lcd.clear();
+      lcd.print("TIME IS OVER!");
       break;
     case 10: 
       tone(ten);
-      
+
     default:   
       //SerialUSB.println(TimeTotal);
-	  lcd.setCursor(0,1);
-	  lcd.print(TimeTotal+" seconds");
-      break; //stub for LCD  
+      lcd.setCursor(0,1);
+      lcd.print(TimeTotal);
+      lcd.print(" seconds");
+      break;  
     }//endswitch
   }//endif
 }
@@ -277,44 +266,74 @@ void donothing(){
 
 //Handlers for player buttons
 void PlayerHandler1(){
-  state |= PlayerButtonLogic[0]; // rise the corresponding bit
+  if (ButtonFree){
+    state = 1;
+    btn = 0;
+    ButtonFree = false;
+  }
 }
 
 void PlayerHandler2(){
-  state |= PlayerButtonLogic[1];
+  if (ButtonFree){
+    state = 1;
+    btn = 1;
+    ButtonFree = false;
+  }
 }
 
 void PlayerHandler3(){
-  state |= PlayerButtonLogic[2];
+  if (ButtonFree){
+    state = 1;
+    btn = 2;
+    ButtonFree = false;
+  }
 }
 
 void PlayerHandler4(){
-  state |= PlayerButtonLogic[3];
+  if (ButtonFree){
+    state = 1;
+    btn = 3;
+    ButtonFree = false;
+  }
 }
 
 void PlayerHandler5(){
-  state |= PlayerButtonLogic[4];
+  if (ButtonFree){
+    state = 1;
+    btn = 4;
+    ButtonFree = false;
+  }
 }
 
 void PlayerHandler6(){
-  state |= PlayerButtonLogic[5];
+  if (ButtonFree){
+    state = 1;
+    btn = 5;
+    ButtonFree = false;
+  }
 }
 
 //handlers for corresponding time buttons;
 
 void TimeHandler60(){
-  state |= TimerButtonLogic[0];
-  TimeTotal = 61;
+  if (!Counting&&ButtonFree){
+    state = 2;
+    TimeTotal = 60;
+  }
 }
 
 void TimeHandler20(){
-  state |= TimerButtonLogic[1];
-  TimeTotal = 21;
+  if (!Counting&&ButtonFree){
+    state = 2;
+    TimeTotal = 20;
+  }
 }
 
 void TimeHandler5(){
-  state |= TimerButtonLogic[2];
-  TimeTotal = 6;
+  if (!Counting&&ButtonFree){
+    state = 2;
+    TimeTotal = 5;
+  }
 }
 
 void BuzzTick(){
@@ -324,12 +343,19 @@ void BuzzTick(){
 }
 
 void ResetHandler(){
-  state |= ResetButtonLogic;
+  state = 4;
 }
 
 void TickHandler(){
-  state |= TimeTickLogic;
+  state = 3;
 }
+
+
+
+
+
+
+
 
 
 
