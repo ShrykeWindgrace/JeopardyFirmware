@@ -2,7 +2,7 @@
 Main module bor Brain-ring/Jeopardy system;
  Bases on Olimexino-stm32 board
  Pin numbers are subject to change for logistic reasons
- version 0.2.1 ("new interrupted buttons, buzzer, LCD")
+ version 0.2.2 (" interrupted buttons, transistor-governed sound, 7-digit LED")
  
  Functionality: basic input/output logic;
  supports up to 6 player buttons;
@@ -17,9 +17,8 @@ Main module bor Brain-ring/Jeopardy system;
  
  2012
  */
-#include <LiquidCrystal.h> //required for easy lcd usage
 
-const int NP = 2; //number of players, <=6
+const int NP = 6; //number of players, <=6
 
 
 const int PlayerButton[6] = {
@@ -32,24 +31,79 @@ const voidFuncPtr PlayerHandler[6] = {
 const int PlayerLED[6] = {
   8,9,10,11,12,13}; //Array of player led pins
 
-const int TimeLED = 3; // on if timer is on
-const int FalseLED = 4;// on if false start 
+const int TimeLED = 4; // on if timer is on
+const int FalseLED = 3;// on if false start 
 
 const int Buzz = 24; // buzzer pin
 
-const int ResetButton = 32;//button to reset all variables to default; 
+const int ResetButton = 19;//button to reset all variables to default; 
 
 
 const int TimerButton[3] = {
-  19,16,30}; // launch 60s,20s,5s respectively
+  32,30,16}; // launch 60s,20s,5s respectively
 const voidFuncPtr TimeHandler[3] = {
   TimeHandler60,TimeHandler20,TimeHandler5};
 
 
 int i = 0; //iteration variable
 
-LiquidCrystal lcd(35,33,31,29,27,25);//everything leads to ext headers
+//LiquidCrystal lcd(35,33,31,29,27,25);//everything leads to ext headers
 //                rs,e, d4,d5,d6,d7
+
+const int Letters[14][7] = {
+  {
+    HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, LOW                         }
+  ,//0
+  {
+    LOW, HIGH, HIGH, LOW, LOW, LOW, LOW                         }
+  ,//1
+  {
+    HIGH, HIGH, LOW, HIGH, HIGH, LOW, HIGH                         }
+  ,//2
+  {
+    HIGH, HIGH, HIGH, HIGH, LOW, LOW, HIGH                         }
+  ,//3
+  {
+    LOW, HIGH, HIGH, LOW, LOW, HIGH, HIGH                         }
+  ,//4
+  {
+    HIGH, LOW, HIGH, HIGH, LOW, HIGH, HIGH                         }
+  ,//5
+  {
+    HIGH, LOW, HIGH, HIGH, HIGH, HIGH, HIGH                         }
+  ,//6
+  {
+    HIGH, HIGH, HIGH, LOW, LOW, LOW, LOW                         }
+  ,//7
+  {
+    HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, HIGH                         }
+  ,//8
+  {
+    HIGH, HIGH, HIGH, HIGH, LOW, HIGH, HIGH                         }
+  ,//9
+  {
+    HIGH, LOW, LOW, LOW, HIGH, HIGH, HIGH                         }
+  ,//F
+  {
+    HIGH, LOW, LOW, HIGH, HIGH, HIGH, LOW                         }
+  ,//C
+  {
+    HIGH, HIGH, HIGH, HIGH, LOW, LOW, LOW                         }
+  ,//D
+  {
+    LOW, LOW, LOW, LOW, LOW, LOW, LOW                         }//empty
+};
+
+const int LetterPins[2][7]={
+  {
+    //   28,34,36                 
+    34,28,33,35,37,36,25     
+  }
+  , //!! IMPORTANT! this must be changed!
+  {
+    17,15,29,27,31,18,26                        }
+};
+
 
 volatile int TimeTotal = 0; // time launched for in seconds
 //int TimeLaunch = 0;// time when we launched the countdown
@@ -73,12 +127,21 @@ volatile int btn = -1; //the number of the pressed player button
  3 time tick
  4 reset.
  */
+
+
 void setup(){
   //not yet needed;
   //establishContact();
 
-  lcd.begin(16,2);
-  lcd.clear();
+  //lcd.begin(16,2);
+  //lcd.clear();
+  int j=0;
+  for (i=0;i<7;i++){
+    for (j=0;j<2;j++){
+      pinMode(LetterPins[j][i],OUTPUT);
+      digitalWrite(LetterPins[j][i],LOW);
+    }
+  }
 
 
   for (i=0;i<NP;i++){
@@ -100,7 +163,7 @@ void setup(){
 
   pinMode(Buzz, PWM);
   ResetAll();//resetting all output channels;
-  lcd.print("Welcome!");
+  //lcd.print("Welcome!");
 
   TickTimer.pause();
   TickTimer.setPeriod(1000*1000);//period of 1 second 
@@ -122,6 +185,17 @@ void setup(){
   BuzzTimer.setMode(TIMER_CH4,TIMER_PWM);
 
   //establishContact();
+  //  for(i=0;i<7;i++){
+  //    digitalWrite(LetterPins[0][i],LOW);
+  //    //delay(1500);
+  //  }
+  //  ShowLetter(1,13);
+  //  digitalWrite(14,HIGH);
+  //  delay(2500);
+  //  for(i=0;i<7;i++){
+  //    digitalWrite(LetterPins[0][i],HIGH);
+  //    delay(1500);
+  //  }
 }
 void loop(){
 
@@ -133,20 +207,23 @@ void loop(){
 
     // SerialUSB.print("pressed");
     // SerialUSB.println(btn);
-    lcd.clear();
-    lcd.setCursor(0,0);
+    //lcd.clear();
+    //lcd.setCursor(0,0);
     if (!Counting){
       tone(over); 
       digitalWrite(FalseLED, HIGH);
-      lcd.print("FALSESTART");
+      //lcd.print("FALSESTART");
+      ShowLetter(0, 10);
     }
     else{
       tone(good);
-      lcd.print("FIRST TO PRESS");
+      //lcd.print("FIRST TO PRESS");
+      ShowLetter(0,13);
     }
-    lcd.setCursor(0,1);
-    lcd.print("TABLE ");
-    lcd.print(6-btn);
+    //lcd.setCursor(0,1);
+    //lcd.print("TABLE ");
+    //lcd.print(6-btn);
+    ShowLetter(1, 6-btn);
     Counting=false;
     TickTimer.pause();
     digitalWrite(TimeLED,LOW);
@@ -164,8 +241,8 @@ void loop(){
       Counting = true;
       //ButtonFree = true;
       digitalWrite(TimeLED,HIGH);
-      lcd.clear();
-      lcd.print("TIME REMAINING");
+      //lcd.clear();
+      //lcd.print("TIME REMAINING");
       // SerialUSB.println(TimeTotal);
     }
     break;
@@ -228,7 +305,9 @@ void ResetAll(){
   BuzzTimer.pause();
   state = 0;
   btn = -1;
-  lcd.clear();
+  //lcd.clear();
+  ShowLetter(0,11);
+  ShowLetter(1,12);
   ButtonFree = true;
 }//endresetall
 
@@ -245,17 +324,21 @@ void TimeTick(){
       TickTimer.pause();
       digitalWrite(TimeLED,LOW); //time is over
       state=0;
-      lcd.clear();
-      lcd.print("TIME IS OVER!");
+      //lcd.clear();
+      //lcd.print("TIME IS OVER!");
+      ShowLetter(0,12);
+      ShowLetter(1,11);
       break;
     case 10: 
       tone(ten);
 
     default:   
       //SerialUSB.println(TimeTotal);
-      lcd.setCursor(0,1);
-      lcd.print(TimeTotal);
-      lcd.print(" seconds");
+      //lcd.setCursor(0,1);
+      //lcd.print(TimeTotal);
+      //lcd.print(" seconds");
+      ShowLetter(0,TimeTotal/10);
+      ShowLetter(1,TimeTotal%10);
       break;  
     }//endswitch
   }//endif
@@ -349,6 +432,25 @@ void ResetHandler(){
 void TickHandler(){
   state = 3;
 }
+
+
+
+
+void ShowLetter(int pos, int c){
+  if ((pos>=0)&&(pos<=1)&&(c>=0)&&(c<=13)){
+    for (int j=0;j<7;j++)
+      digitalWrite(LetterPins[pos][j],Letters[c][j]);
+  }
+}
+
+
+
+
+
+
+
+
+
 
 
 
