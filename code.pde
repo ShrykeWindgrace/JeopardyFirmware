@@ -2,12 +2,12 @@
 Main module bor Brain-ring/Jeopardy system;
  Bases on Olimexino-stm32 board
  Pin numbers are subject to change for logistic reasons
- version 0.1.1 ("interrupted buttons, buzzer")
+ version 0.1.2 ("interrupted buttons, buzzer, LCD")
  
  Functionality: basic input/output logic;
  supports up to 6 player buttons;
  
- TO DO: LCD;
+ TO DO: test this;
  
  TO DO: interactions with software on the laptop:
  - detecting if someone is reading our output; 50ms delay on println to overcome;
@@ -17,12 +17,13 @@ Main module bor Brain-ring/Jeopardy system;
  
  2012
  */
-
+#include <LiquidCrystal.h> //required for easy lcd usage
+ 
 const int NP = 6; //number of players, <=6
 
 
 const int PlayerButton[6] = {
-  0,1,2,4,5,10}; //Array of player button pins // Note that D3 is LED2 and somehow it interferes with our work on the first run(((
+  0,1,2,4,5,6}; //Array of player button pins // Note that D3 is LED2 and somehow it interferes with our work on the first run(((
 
 const voidFuncPtr PlayerHandler[6] = {
   PlayerHandler1,PlayerHandler2,PlayerHandler3,PlayerHandler4,PlayerHandler5,PlayerHandler6};
@@ -38,30 +39,31 @@ const int FalseLED = 3;// on if false start //can use 14, but let's use the seco
 
 const int Buzz = 24; // buzzer pin
 
-const int ResetButton = 9;//button to reset all variables to default; 
+const int ResetButton = 10;//button to reset all variables to default; 
+const int ResetButtonLogic = 512u;
+
 const int TimerButton[3] = {
-  6,7,8}; // launch 60s,20s,5s respectively
+  7,8,9}; // launch 60s,20s,5s respectively
 const voidFuncPtr TimeHandler[3] = {
   TimeHandler60,TimeHandler20,TimeHandler5};
 const int TimerButtonLogic[3] = {
   64u,128u,256u};
 
-
-//const int Trust = 500;//block timer buttons for Trust ms after one of them pressed;
-//sort of software debouncing plus avoids long presses
 int i = 0; //iteration variable
 
-
+LiquidCrystal lcd(25,27,29,31,33,35);//everything leads to ext headers
+//                rs,e, d4,d5,d6,d7
+   
 volatile int TimeTotal = 0; // time launched for in seconds
-int TimeLaunch = 0;// time when we launched the countdown
+//int TimeLaunch = 0;// time when we launched the countdown
 
-//volatile int secs = 0; //Decreased on the hardware timer interrupt;
 HardwareTimer TickTimer(1);//we use hardware timer for the global timing
 HardwareTimer BuzzTimer(4);//the pwm timer to drive a buzzer;
 HardwareTimer BuzzLockerTimer(2); // the timer to turn buzzer on and off;
 volatile boolean Counting = false; //true if the timer is on
-//volatile boolean Buzzing = false; //might be not necessary
 volatile boolean ButtonFree = true; // false if any player pressed a button and reset button is yet to be hit;
+
+const int TimeTickLogic = 1024u;
 
 //const int freq[5] = {};
 const int start = 1000; //frequencies
@@ -71,11 +73,17 @@ const int good = 750;
 volatile uint16 state=0; // state that describes the buttons pressed;
 /* first six bits correspond to player buttons; 0 to represent UNPRESSED;
  next three bits correspond to "launch time" buttons; 0 to represent UNPRESSED; 60s, 20s, 5s respectively
+ 512u correspond to reset button. we need to include it here, because reset now operates with lcd, and it has
+ delays
+ 1024u stands for time ticks. same as above, we need delays
  */
 void setup(){
   //not yet needed;
   //establishContact();
 
+  lcd.begin(16,2);
+  lcd.clear();
+  
   for (i=0;i<NP;i++){
     pinMode(PlayerButton[i],INPUT_PULLUP);//setting all buttons to input pull-up mode; HIGH reading stand for unpressed;
     attachInterrupt(PlayerButton[i],PlayerHandler[i],FALLING); //we attach the corresponding interrupts
@@ -88,7 +96,7 @@ void setup(){
   }
 
   pinMode(ResetButton,INPUT_PULLUP); 
-  attachInterrupt(ResetButton, ResetAll, FALLING);
+  attachInterrupt(ResetButton, ResetHandler, FALLING);
 
   pinMode(TimeLED,OUTPUT);//evident part
   pinMode(FalseLED,OUTPUT);
@@ -100,7 +108,7 @@ void setup(){
   TickTimer.setPeriod(1000*1000);//period of 1 second 
   TickTimer.setChannel1Mode(TIMER_OUTPUT_COMPARE);
   TickTimer.setCompare(TIMER_CH1, 0 );  // Interrupt 0 count after each update
-  TickTimer.attachCompare1Interrupt(tick);
+  TickTimer.attachCompare1Interrupt(TickHandler);
 
   BuzzLockerTimer.pause();
   //BuzzLockerTimer.setPrescaleFactor(1);
@@ -120,18 +128,28 @@ void loop(){
 
   while(state==0){
   }//meaning, wait for input;
-  // tone(1000);
 
-  if ((state|63u)>0){//pressed a player button
+  if (state&ResetButtonLogic>0){//reset button
+    ResetAll();
+  }else{
+  if (state&TimeTickLogic>0){//time tick
+    TimeTick();}else{
+  if ((state&63u)>0){//pressed a player button
     for(i=0;i<NP;i++){
       if (state|PlayerButtonLogic[i]>0){
+	    lcd.clear();
+		lcd.setCursor(0,0);
         if (!Counting){
           tone(over); 
           digitalWrite(FalseLED, HIGH);
+		  lcd.print("FALSESTART");
         }
         else{
           tone(good);
+		  lcd.print("FIRST TO PRESS");
         }
+		lcd.setCursor(0,1);
+		lcd.print("TABLE "+(i+1));
         Counting=false;
         TickTimer.pause();
         digitalWrite(TimeLED,LOW);
@@ -147,11 +165,14 @@ void loop(){
       TickTimer.resume();
       tone(start);
       Counting = true;
+	  lcd.clear();
+	  lcd.print("TIME REMAINING");
 
     }
     state = 0; // allowing to go listening again; in case of counting, this just ignores the triggers from those buttons
   }//endelse if 63
-
+}//endglobal else
+}
 
 
 
@@ -204,6 +225,8 @@ void ResetAll(){
   TickTimer.pause();
   BuzzTimer.pause();
   state =0;
+  
+  lcd.clear();
 }//endresetall
 
 int TimeToLaunch(int var){
@@ -223,23 +246,27 @@ int TimeToLaunch(int var){
 }
 
 
-void tick(){
+void TimeTick(){
   TimeTotal--;
   if (Counting){
     switch (TimeTotal){
     case 0: 
       Counting = false; 
       tone(over);
-      SerialUSB.println(millis()-TimeLaunch);
+      //SerialUSB.println(millis()-TimeLaunch);
       TickTimer.pause();
       digitalWrite(TimeLED,LOW); //time is over
       state=0;
+	  lcd.clear();
+	  lcd.print("TIME IS OVER!");
       break;
     case 10: 
       tone(ten);
-      //donothing(); //stub for buzzer. Note, maybe break is not needed;
+      
     default:   
-      SerialUSB.println(TimeTotal);
+      //SerialUSB.println(TimeTotal);
+	  lcd.setCursor(0,1);
+	  lcd.print(TimeTotal+" seconds");
       break; //stub for LCD  
     }//endswitch
   }//endif
@@ -276,17 +303,17 @@ void PlayerHandler6(){
 //handlers for corresponding time buttons;
 
 void TimeHandler60(){
-  state |= 0b1000000;
+  state |= TimerButtonLogic[0];
   TimeTotal = 61;
 }
 
 void TimeHandler20(){
-  state |= 0b10000000;
+  state |= TimerButtonLogic[1];
   TimeTotal = 21;
 }
 
 void TimeHandler5(){
-  state |= 0b100000000;
+  state |= TimerButtonLogic[2];
   TimeTotal = 6;
 }
 
@@ -296,9 +323,13 @@ void BuzzTick(){
   BuzzLockerTimer.pause();
 }
 
+void ResetHandler(){
+  state |= ResetButtonLogic;
+}
 
-
-
+void TickHandler(){
+  state |= TimeTickLogic;
+}
 
 
 
