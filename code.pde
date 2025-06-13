@@ -2,7 +2,7 @@
 Main module bor Brain-ring/Jeopardy system;
  Bases on Olimexino-stm32 board
  Pin numbers are subject to change for logistic reasons
- version 0.2.0 ("new interrupted buttons, buzzer, LCD")
+ version 0.2.1 ("new interrupted buttons, buzzer, LCD")
  
  Functionality: basic input/output logic;
  supports up to 6 player buttons;
@@ -19,29 +19,29 @@ Main module bor Brain-ring/Jeopardy system;
  */
 #include <LiquidCrystal.h> //required for easy lcd usage
 
-const int NP = 6; //number of players, <=6
+const int NP = 2; //number of players, <=6
 
 
 const int PlayerButton[6] = {
-  5,4,6,2,1,0}; //Array of player button pins // Note that D3 is LED2 and somehow it interferes with our work on the first run(((
+  7,6,5,2,1,0}; //Array of player button pins // Note that D3 is LED2 and somehow it interferes with our work on the first run(((
 
 const voidFuncPtr PlayerHandler[6] = {
   PlayerHandler1,PlayerHandler2,PlayerHandler3,PlayerHandler4,PlayerHandler5,PlayerHandler6};
 
 
 const int PlayerLED[6] = {
-  15,16,17,18,19,20}; //Array of player led pins
+  8,9,10,11,12,13}; //Array of player led pins
 
-const int TimeLED = BOARD_LED_PIN; //=13; on if timer is on
-const int FalseLED = 3;// on if false start //can use 14, but let's use the second LED
+const int TimeLED = 3; // on if timer is on
+const int FalseLED = 4;// on if false start 
 
 const int Buzz = 24; // buzzer pin
 
-const int ResetButton = 7;//button to reset all variables to default; 
+const int ResetButton = 32;//button to reset all variables to default; 
 
 
 const int TimerButton[3] = {
-  10,9,8}; // launch 60s,20s,5s respectively
+  19,16,30}; // launch 60s,20s,5s respectively
 const voidFuncPtr TimeHandler[3] = {
   TimeHandler60,TimeHandler20,TimeHandler5};
 
@@ -121,7 +121,7 @@ void setup(){
   BuzzTimer.setPrescaleFactor(72);  // microseconds
   BuzzTimer.setMode(TIMER_CH4,TIMER_PWM);
 
-  // establishContact();
+  //establishContact();
 }
 void loop(){
 
@@ -131,8 +131,8 @@ void loop(){
   switch(state){
   case 1: //player button
 
-    //  SerialUSB.print("pressed");
-    //  SerialUSB.println(btn);
+    // SerialUSB.print("pressed");
+    // SerialUSB.println(btn);
     lcd.clear();
     lcd.setCursor(0,0);
     if (!Counting){
@@ -146,7 +146,7 @@ void loop(){
     }
     lcd.setCursor(0,1);
     lcd.print("TABLE ");
-    lcd.print(btn+1);
+    lcd.print(6-btn);
     Counting=false;
     TickTimer.pause();
     digitalWrite(TimeLED,LOW);
@@ -166,7 +166,7 @@ void loop(){
       digitalWrite(TimeLED,HIGH);
       lcd.clear();
       lcd.print("TIME REMAINING");
-      //    SerialUSB.println(TimeTotal);
+      // SerialUSB.println(TimeTotal);
     }
     break;
   case 3: 
@@ -177,7 +177,7 @@ void loop(){
     break;
   case 4: //reset button
     ResetAll();
-    // SerialUSB.println("reset");
+    //  SerialUSB.println("reset");
     break;
 
   default: 
@@ -349,6 +349,8 @@ void ResetHandler(){
 void TickHandler(){
   state = 3;
 }
+
+
 
 
 
