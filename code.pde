@@ -3,18 +3,18 @@ Main module bor Brain-ring/Jeopardy system;
  Bases on Olimexino-stm32 board
  Pin numbers are subject to change for logistic reasons
  version 0.2.2 (" interrupted buttons, transistor-governed sound, 7-digit LED")
- 
+
  Functionality: basic input/output logic;
  supports up to 6 player buttons;
- 
+
  TO DO: test this;
- 
+
  TO DO: interactions with software on the laptop:
  - detecting if someone is reading our output; 50ms delay on println to overcome;
  - reading/converting/resending output over some protocol agreement
- 
+
  Portability: Due to extended usage of external interrupts, atm it's limited to Maple boards.
- 
+
  2012
  */
 
@@ -32,11 +32,11 @@ const int PlayerLED[6] = {
   8,9,10,11,12,13}; //Array of player led pins
 
 const int TimeLED = 4; // on if timer is on
-const int FalseLED = 3;// on if false start 
+const int FalseLED = 3;// on if false start
 
 const int Buzz = 24; // buzzer pin
 
-const int ResetButton = 19;//button to reset all variables to default; 
+const int ResetButton = 19;//button to reset all variables to default;
 
 
 const int TimerButton[3] = {
@@ -96,8 +96,8 @@ const int Letters[14][7] = {
 
 const int LetterPins[2][7]={
   {
-    //   28,34,36                 
-    34,28,33,35,37,36,25     
+    //   28,34,36
+    34,28,33,35,37,36,25
   }
   , //!! IMPORTANT! this must be changed!
   {
@@ -155,7 +155,7 @@ void setup(){
     attachInterrupt(TimerButton[i], TimeHandler[i], FALLING);//we attach the corresponding interrupts
   }
 
-  pinMode(ResetButton,INPUT_PULLUP); 
+  pinMode(ResetButton,INPUT_PULLUP);
   attachInterrupt(ResetButton, ResetHandler, FALLING);
 
   pinMode(TimeLED,OUTPUT);//evident part
@@ -166,7 +166,7 @@ void setup(){
   //lcd.print("Welcome!");
 
   TickTimer.pause();
-  TickTimer.setPeriod(1000*1000);//period of 1 second 
+  TickTimer.setPeriod(1000*1000);//period of 1 second
   TickTimer.setChannel1Mode(TIMER_OUTPUT_COMPARE);
   TickTimer.setCompare(TIMER_CH1, 0 );  // Interrupt 0 count after each update
   TickTimer.attachCompare1Interrupt(TickHandler);
@@ -210,7 +210,7 @@ void loop(){
     //lcd.clear();
     //lcd.setCursor(0,0);
     if (!Counting){
-      tone(over); 
+      tone(over);
       digitalWrite(FalseLED, HIGH);
       //lcd.print("FALSESTART");
       ShowLetter(0, 10);
@@ -246,7 +246,7 @@ void loop(){
       // SerialUSB.println(TimeTotal);
     }
     break;
-  case 3: 
+  case 3:
     TimeTick(); //interrupt from tick timer
     if (Counting){
       //    SerialUSB.println(TimeTotal);
@@ -257,7 +257,7 @@ void loop(){
     //  SerialUSB.println("reset");
     break;
 
-  default: 
+  default:
     state=0;//jic
   }
   state = 0;//allows to run further
@@ -317,8 +317,8 @@ void TimeTick(){
   TimeTotal--;
   if (Counting){
     switch (TimeTotal){
-    case 0: 
-      Counting = false; 
+    case 0:
+      Counting = false;
       tone(over);
       //SerialUSB.println(millis()-TimeLaunch);
       TickTimer.pause();
@@ -329,17 +329,17 @@ void TimeTick(){
       ShowLetter(0,12);
       ShowLetter(1,11);
       break;
-    case 10: 
+    case 10:
       tone(ten);
 
-    default:   
+    default:
       //SerialUSB.println(TimeTotal);
       //lcd.setCursor(0,1);
       //lcd.print(TimeTotal);
       //lcd.print(" seconds");
       ShowLetter(0,TimeTotal/10);
       ShowLetter(1,TimeTotal%10);
-      break;  
+      break;
     }//endswitch
   }//endif
 }
@@ -434,35 +434,10 @@ void TickHandler(){
 }
 
 
-
-
 void ShowLetter(int pos, int c){
   if ((pos>=0)&&(pos<=1)&&(c>=0)&&(c<=13)){
     for (int j=0;j<7;j++)
       digitalWrite(LetterPins[pos][j],Letters[c][j]);
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
