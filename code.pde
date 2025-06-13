@@ -2,7 +2,7 @@
 Main module bor Brain-ring/Jeopardy system;
  Bases on Olimexino-stm32 board
  Pin numbers are subject to change for logistic reasons
- version 0.0.1
+ version 0.1.0 ("interrupted buttons")
  
  Functionality: basic input/output logic;
  supports up to 6 player buttons;
@@ -13,8 +13,8 @@ Main module bor Brain-ring/Jeopardy system;
  - detecting if someone is reading our output; 50ms delay on println to overcome;
  - reading/converting/resending output over some protocol agreementl
  
- Portability: Any Arduino/Maple compatible board with, eventually, some charlieplexing/reducing number of players/making LCD 4-bit; 
- hardware timer, afaik, is not portable;
+ Portability: Due to extended usage of external interrupts, atm it's limited to Maple boards.
+ 
  2012
  */
 
@@ -22,18 +22,24 @@ const int NP = 6; //number of players, <=6
 
 
 const int PlayerButton[6] = {
-  0,1,2,12,4,5}; //Array of player button pins // Note that D3 is LED2 and somehow it interferes with our work on the first run(((
-const int PlayerLED[6] = {
-  6,7,8,9,10,11}; //Array of player led pins
+  2,1,0,10,4,5}; //Array of player button pins // Note that D3 is LED2 and somehow it interferes with our work on the first run(((
 
-const int TimeLED = BOARD_LED_PIN; // on if timer is on
+const voidFuncPtr PlayerHandler[6] = {PlayerHandler1,PlayerHandler2,PlayerHandler3,PlayerHandler4,PlayerHandler5,PlayerHandler6};
+
+const int PlayerLED[6] = {
+  15,16,17,18,19,20}; //Array of player led pins
+
+const int TimeLED = BOARD_LED_PIN; //=13; on if timer is on
 const int FalseLED = 3;// on if false start //can use 14, but let's use the second LED
 
 const int Buzz = 24; // buzzer pin//yet to be used
 
-const int ResetButton = 19;//button to reset all variable to default; 
+const int ResetButton = 9;//button to reset all variable to default; 
 const int TimerButton[3] = {
-  16,17,18}; // launch 60s,20s,5s respectively
+  6,7,8}; // launch 60s,20s,5s respectively
+const voidFuncPtr TimeHandler[3] = {TimeHandler60,TimeHandler20,TimeHandler5};
+
+
 
 const int Trust = 500;//block timer buttons for Trust ms after one of them pressed;
 //sort of software debouncing plus avoids long presses
@@ -44,23 +50,30 @@ volatile int TimeTotal = 0; // time launched for in seconds
 int TimeLaunch = 0;// time when we launched the countdown
 
 volatile int secs = 0; //Decreased on the hardware timer interrupt;
-HardwareTimer timer(1);//we use hardware timer; This is not directly portable to Arduino
-
+HardwareTimer TickTimer(1);//we use hardware timer for the global timing
+HardwareTimer BuzzTimer(4);//the pwm timer to drive a buzzer;
+HardwareTimer BuzzLockerTImer(2); // the timer to turn buzzer on and off;
 volatile boolean Counting = false; //true if the timer is on
-boolean Buzzing = false; //might be not necessary
-boolean ButtonFree = true; // false if any player pressed a button and reset button is yet to be hit;
+volatile boolean Buzzing = false; //might be not necessary
+volatile boolean ButtonFree = true; // false if any player pressed a button and reset button is yet to be hit;
 
+volatile uint16 state=0; // state that describes the buttons pressed;
+/* first six bits correspond to player buttons; 0 to represent UNPRESSED;
+   next three bits correspond to "launch time" buttons; 0 to represent UNPRESSED; 60s, 20s, 5s respectively
+*/
 void setup(){
   //not yet needed;
   establishContact();
 
   for (i=0;i<NP;i++){
     pinMode(PlayerButton[i],INPUT_PULLUP);//setting all buttons to input pull-up mode; HIGH reading stand for unpressed;
+    attachInterrupt(PlayerButton[i],PlayerHandler[i],FALLING); //we attach the corresponding interrupts
     pinMode(PlayerLED[i],OUTPUT);
   }
 
   for (i=0;i<3;i++){
     pinMode(TimerButton[i],INPUT_PULLUP);
+    attachInterrupt(TimeButton[i], TimeHandler[i], FALLING);//we attach the corresponding interrupts
   }
 
   pinMode(ResetButton,INPUT_PULLUP); 
@@ -71,58 +84,29 @@ void setup(){
   pinMode(Buzz, OUTPUT);
   ResetAll();//resetting all output channels;
 
-  timer.pause();
-  timer.setPeriod(1000*1000);//period of 1 second 
-  timer.setChannel1Mode(TIMER_OUTPUT_COMPARE);
-  timer.setCompare(TIMER_CH1, 0 );  // Interrupt 1 count after each update
-  timer.attachCompare1Interrupt(tick);
+  TickTimer.pause();
+  TickTimer.setPeriod(1000*1000);//period of 1 second 
+  TickTimer.setChannel1Mode(TIMER_OUTPUT_COMPARE);
+  TickTimer.setCompare(TIMER_CH1, 0 );  // Interrupt 1 count after each update
+  TickTimer.attachCompare1Interrupt(tick);
+
+  BuzzLockerTimer.pause();
+  TickTimer.setPeriod(1000*1000);//period of 1 second 
+  TickTimer.setChannel1Mode(TIMER_OUTPUT_COMPARE);
+  TickTimer.setCompare(TIMER_CH1, 999999 );  // Interrupt 999999 count after each update
+  TickTimer.attachCompare1Interrupt(BuzzTick);
 
 
+  BuzzTimer.pause();
+
+  attachInterrupt(ResetButton, ResetAll, FALLING);
 }
 void loop(){
 
+  while(state==0){}//meaning, wait for input;
 
 
-  for (i=0;i<NP;i++){//asking all player buttons
-    if((digitalRead(PlayerButton[i])==LOW) && ButtonFree){
-      ButtonFree = false; //not accepting other button hits
-      if (!Counting){
-        digitalWrite(FalseLED,HIGH); // if it was before the time, then light up false start LED
-      } 
-      else { //do nothing atm. stub for buzzer, maybe
-      }//endifelse
-      digitalWrite(TimeLED,LOW); // in any way, timer will need to be restarted;
-      Counting = false; //timer is off
-      timer.pause();
-      digitalWrite(PlayerLED[i],HIGH); //who pressed?
-      SerialUSB.println("pressed");
-      SerialUSB.println(i+1);
-    } //endif
-  }//endfor
 
-  for (i=0;i<3;i++){//asking timer buttons
-    if ((digitalRead(TimerButton[i])==LOW) && (ButtonFree) && ((!Counting) || (millis()-TimeLaunch>Trust))){
-      //      Button is pressed and players didn't press and (either not counting  or the timer button is no longer locked)
-
-      TimeTotal = TimeToLaunch(2-i); //first button stands for 60s
-      timer.pause();
-      timer.refresh();
-      TimeLaunch = millis();
-      timer.resume();
-
-      digitalWrite(TimeLED,HIGH);
-      Counting = true;
-      SerialUSB.println("Time is up.");
-
-    }//endif
-  }//endfor
-
-  if (digitalRead(ResetButton)==LOW){
-    ResetAll(); //reset button;
-  }
-
-
-  //working with timer Looks like we will use hardware timers; see for examples on the site;
 
 }//endloop
 
@@ -145,7 +129,7 @@ void ResetAll(){
 
   digitalWrite(FalseLED,LOW);
 
-  digitalWrite(Buzz,LOW);
+  pwmWrite(Buzz,0); //???
 
   Counting = false;
   Buzzing = false;
@@ -178,7 +162,7 @@ void tick(){
     case 0: 
       Counting = false; 
       SerialUSB.println(millis()-TimeLaunch);
-      timer.pause();
+      TickTimer.pause();
       digitalWrite(TimeLED,LOW); //time is over
 
       break;
@@ -194,17 +178,52 @@ void tick(){
 void donothing(){
 }
 
+//Handlers for player buttons
+void PlayerHandler1(){
+state |= 0b1; // rise the corresponding bit
+}
 
+void PlayerHandler2(){
+state |= 0b10;
+}
 
+void PlayerHandler3(){
+state |= 0b100;
+}
 
+void PlayerHandler4(){
+state |= 0b1000;
+}
 
+void PlayerHandler5(){
+state |= 0b10000;
+}
 
+void PlayerHandler6(){
+state |= 0b100000;
+}
 
+//handlers for corresponding time buttons;
 
+void TimeHandler60(){
+state |= 0b1000000;
+TimeTotal = 61;
+}
 
+void TimeHandler20(){
+state |= 0b10000000;
+TimeTotal = 21;
+}
 
+void TimeHandler5(){
+state |= 0b100000000;
+TimeTotal = 6;
+}
 
-
-
+void BuzzTick(){
+pwmWrite(Buzzer, 0);
+BuzzTimer.pause();
+BuzzLockerTimer.pause();
+}
 
 
